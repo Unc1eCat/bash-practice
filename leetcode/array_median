@@ -1,0 +1,48 @@
+#! /bin/bash
+
+usage() {
+	echo 'array_median <array elements...>'
+	echo 'Combines the arrays and finds their median. The arrays must be a sequence of integers separated by space.'
+}
+
+sort_array() {
+	ret=($*)
+	for i in ${!ret[@]}; do
+		min_idx=$i
+		for (( j = $i + 1; j < ${#ret[@]}; j++ )); do
+			if [[ ${ret[j]} -lt ${ret[min_idx]} ]]; then
+				min_idx=$j
+			fi
+		done
+		temp=${ret[i]}
+		ret[i]=${ret[min_idx]}
+		ret[min_idx]=$temp
+	done
+	echo ${ret[*]}
+}
+
+run() {
+	array=($(sort_array $*))
+	if (( ${#array[@]} % 2 == 0 )); then
+		elem1=${array[ ${#array[@]} / 2 - 1 ]}
+		elem2=${array[ ${#array[@]} / 2 ]}
+		echo $(( (elem1 + elem2) / 2 ))
+	else
+		echo ${array[ ${#array[@]} / 2 ]}
+	fi
+}
+
+check_array() {
+	for i in $*; do
+		if [[ $i != ?(-)+([0-9]) ]]; then
+			return 1
+		fi
+	done
+	return 0
+}
+
+if check_array $*; then
+	run $*
+else
+	usage
+fi

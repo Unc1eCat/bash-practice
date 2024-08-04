@@ -1,0 +1,21 @@
+#! /bin/bash
+
+isprime() {
+	for ((i = 2; i < $1; i++)); do
+		if (($1 % i == 0)); then
+			return 1
+		fi
+	done
+	return 0
+}
+
+num=1
+found=0
+while [ $found -lt $1 ]; do
+	((num++))
+	if isprime $num; then
+		((found++))
+	fi
+done
+
+echo $num

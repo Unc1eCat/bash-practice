@@ -1,0 +1,40 @@
+#! /bin/bash
+
+usage() {
+	case $1 in
+		add) cat << EOF
+ordersdb add <file> [--id <id>] [--datetime <datetime>] --item <item> --total <total> [--note <note>]
+
+Adds order to the file with specified fields. Defaults are:
+id - new random ID that's not already in the file.
+datetime - current date and time.
+note - empty string.
+EOF
+		;;
+		remove) cat << EOF
+ordersdb remove <file> <id>
+
+Removes order with specified id from the file.
+EOF
+		;;
+		edit) cat << EOF
+ordersdb edit <file> [--id] <id> [--datetime <datetime>] [--item <item>] [--total <total>] [--note <note>]
+
+Edits order with specified ID in the file. Changes values of its fields to corresponding arguments. If an argument is not specified then leaves the field unchanged.
+EOF
+		;;
+		get) cat << EOF
+ordersdb get <file> [-v] [<id>]
+
+Returns the order with the ID from the file. If no ID is specified then returns all entries. If `-v` is specified then returns the orders in human-readable format, without it returns orders in a format that is easy to filter.
+EOF
+		;;
+		*) cat << EOF
+ordersdb (add|remove|edit|get) (<file> <args...>|--help|-h)
+
+Used to perform basic CRUD operations on a database of orders, stored in the file. Use `--help` or `-h` with appropriate subcommand to show information about it.
+EOF
+	esac
+}
+
+

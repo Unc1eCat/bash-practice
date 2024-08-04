@@ -1,0 +1,13 @@
+#! /bin/bash
+
+usage() {
+	cat << END
+wordsearch (--solve | (<width> <height> <words>...)) <file>
+
+Generates a Word Search game: a file with a grid of letters where you have to find words vertically and horizontally. If `--solve` is enabled then finds words in the file.
+END
+}
+
+
+
+

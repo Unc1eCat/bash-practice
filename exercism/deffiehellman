@@ -1,0 +1,13 @@
+#! /bin/bash
+
+show_usage() {
+	echo 'deffiehellman g p [-s secret]'
+	echo 'Calculates a shared secret based on g and p public values and an optional secret random number (if not set, then generated randomly).'
+}
+
+run() {
+	if 
+	public_value=
+}
+
+

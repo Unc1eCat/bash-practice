@@ -1,0 +1,110 @@
+#! /bin/bash
+
+usage() {
+	echo "isodatetime <isodatetime>"
+	echo "Prints human-readable breakdown of the datetime in the ISO format."
+}
+
+count() {
+	local input="$2"
+	local char="$1"
+	local ret=0
+
+	for ((i = 0; i < ${#input}; i++)); do
+		[[ "${input:i:1}" == "$char" ]] && (( ret++ ))
+	done
+	echo ret
+}
+
+month_names=(January February March April May June July August September October November December)
+hr='------------'
+
+parse_tz() {
+	false
+}
+
+parse_date() {
+	local dashes=$(count - "$date")
+
+	year="${date%%-*}"
+
+	if (( dashes >= 1 )); then
+		month="${date#*-}"
+		month="${month%%-*}"
+	fi
+
+	if (( dashes == 2 )); then
+		day="${date##*-}"
+	fi
+}
+
+parse_time() {
+	false
+}
+
+print_tz() {
+	if [[ tz ]]; then
+		cat <<- END
+			$hr TIMEZONE $hr
+			(timezone offset from UTC)
+			Hours: $tz_hours
+			Minutes: $tz_minutes
+		END
+	else
+		cat <<- END
+			$hr TIMEZONE $hr
+			No timezone was specified.
+		END
+	fi
+}
+
+print_result() {
+	cat <<- END
+		$hr DATE $hr
+		Year: $year
+		Month: ${month_names[month]}
+		Day: $day
+		$hr TIME $hr
+		Hour: $hour
+		Minute: $minute
+		Second: $second
+	END
+	print_tz
+}
+
+run() {
+	# Set defaults
+	for i in year month day hour minute second; do
+		declare $i=0
+	done
+
+	input="$1"
+
+	# If tz variable is unset then the input datetime is naive
+	if [[ $input = *@(+?(????|??:??)|-?(????|??:??)|Z) ]]; then
+		local no_tz="${input%[+\-Z]*}"
+		tz="${input#$no_tz}"
+		tz_hours=0
+		tz_minutes=0
+		input="$no_tz"
+	fi
+
+	if [[ $input = *T* ]]; then
+		date="${input%%T*}"
+		time="${input#*T}"
+	else
+		date="$input"
+	fi
+
+	parse_date
+	[[ time ]] && parse_time
+	[[ tz ]] && parse_tz
+
+	print_result
+}
+
+if [[ $# -eq 1 ]]; then
+	run "$@"
+else
+	usage
+fi

@@ -1,0 +1,65 @@
+#! /bin/bash
+
+usage() {
+	cat << EOF
+csvviewer [-h | --help] [(-e | --entry-delimiter) <entry delimiter>] [(-f | --field-delimiter) <field delimiter>] <file>
+
+Displays data from a CSV file in human readable format. Each entry in the file must be separated by the entry delimiter, it defaults to new line. Each field within an entry must be separated by the field delimiter, it defaults to comma. NUL byte within the file content is not allowed. Quote escaping of field value does not work.
+EOF
+}
+
+run() {
+	# 1. Read the CSV file into `cells` 2D array.
+	# 2. Find the longest string in each column.
+	# 3. Process quote escaping in every cell if no `raw` option.
+	# 4. Pad every string in `cells` with spaces so they all have the same length.
+	# 5. Print the table styling it with borders.
+
+	declare -A cells
+	cols_count=0
+	rows_count=0
+
+	rows=()
+	IFS="$entry_delimiter" read -r -d '' -a rows < "$file"
+	rows_count=${#rows[@]}
+
+	cur_fields=()
+	echo -n "${rows[0]}" | { IFS="$field_delimiter" read -r -a cur_fields; }
+	cols_count=${#cur_fields[@]}
+	for i in ${!rows[@]}; do
+		echo "${rows[i]}" | { IFS="$field_delimiter" read -r -a cur_fields; }
+		declare -p cur_fields
+		for j in ${!cur_field[@]}; do
+			cells[$i,$j]="${cur_field[j]}"
+		done
+	done
+
+	declare -p cells
+}
+
+entry_delimiter=$'\n'
+field_delimiter=','
+file=
+
+case "$1" in
+	-e|--entry-delimiter) entry_delimiter="$2"; shift 2 ;;
+	-f|--field-delimiter) field_delimiter="$2"; shift 2 ;;
+	-h|--help) usage; exit 0 ;;
+	*)	if [[ $file ]]; then
+			echo 'Too many positional arguments. See usage:'
+			echo
+			usage
+			exit 1
+		else
+			file="$1"
+		fi
+esac
+
+if [[ ${#entry_delimiter} -ne 1 || ${#field_delimiter} -ne 1 ]]; then
+	echo 'The entry and field delimiters must be exactly one character.'
+	exit 1
+fi
+
+run
+
+
