@@ -1,0 +1,122 @@
+#! /bin/bash
+
+usage() {
+	cat <<- 'END'
+	chunkmd5 [-w <maxworkers>] [-b <chunksize>] [-t <dir>] <file>
+
+	Splits the file into chunks with length of `chunksize` bytes (default is 512), the last chunk might be smaller then `chunksize` bytes. Calculates MD5 hashes for each chunk and prints them to the output.
+	Runs as many worker processes as there are chunks but at most as `maxworkers` (default is 5).
+	If `dir` is specified then all temporary files used for this calculation are put in the `dir` and are not removed after execution. Otherwse a temporary directory is created and remove afterwards.
+	END
+	[[ $1 ]] && exit "$1"
+}
+
+ceildiv() {
+	echo $(( $1 / $2 + (($1 % $2 == 0) ? 0 : 1) ))
+}
+
+min() {
+	echo $(( ($1 < $2) ? $1 : $2 ))
+}
+
+worker() {
+	# See `split --help` for terminology
+	# $1 - first chunk suffix that this worker handles
+	# $2 - last chunk suffix that this worker handles
+	local i
+	for i in $(seq -f "%0${#chunks_num}g" "$1" "$2"); do
+		md5sum "${tmp}/chunk.$i" | cut -d ' ' -f 1
+	done
+}
+
+prepare_env() {
+	shopt -s extglob
+	if [[ $- = *i* ]]; then
+		echo 'This script can not be run in interactive mode, do not source it.'
+		exit 1
+	fi
+}
+
+parse_args() {
+	while (( $# > 0 )); do
+		case "$1" in
+		-w)
+			if [[ $2 = [1-9]*([0-9]) && -z $max_workers ]]; then
+				max_workers="$2"
+				shift
+			else
+				usage 5
+			fi
+		;;
+		-b)
+			if [[ $2 = [1-9]*([0-9]) && -z $chunk_size ]]; then
+				chunk_size="$2"
+				shift
+			else
+				usage 4
+			fi
+		;;
+		-t)
+			if [[ -d $2 && -z $dir ]]; then
+				dir="$2"
+				shift
+			else
+				echo "$2" is not a directory. >&2
+				usage 3
+			fi
+		;;
+		*)
+			if [[ $file ]]; then
+				usage 2
+			else
+				file="$1"
+			fi
+		esac
+		shift
+	done
+	[[ $max_workers ]] || max_workers=5
+	[[ $chunk_size ]] || chunk_size=512
+	[[ $file && -r $file ]] || usage 6
+}
+
+run_workers() {
+	let file_size=$(ls -l "$file" | cut -d ' ' -f 5)
+	let chunks_num=$(ceildiv $file_size $chunk_size)
+	let max_workers=$(min $chunks_num $max_workers)
+	(( delta = chunks_num / max_workers ))
+	(( leftover = chunks_num % max_workers ))
+	#declare -p file_size chunks_num max_workers delta leftover
+
+	if [[ $dir ]]; then
+		tmp="$dir"
+	else
+		tmp="$(mktemp -d)"
+	fi
+	split -d -a ${#chunks_num} -b $chunk_size "$file" "${tmp}/chunk."
+
+	worker_pids=()
+	local -i i=0
+	local -i first=0
+	local -i last=0
+	for ((;first < chunks_num; first = last + 1)); do
+		(( last = first + delta - 1 ))
+		if (( leftover > 0 )); then
+			(( last++ ))
+			(( leftover-- ))
+		fi
+		worker $first $last > "${tmp}/output.$i" &
+		worker_pids+=($!)
+		(( i++ ))
+	done
+
+	wait "${worker_pids[@]}"
+	local -i j=0;
+	for ((; j < i; j++)); do
+		cat "${tmp}/output.$j"
+	done
+	[[ $dir ]] || rm -r "$tmp"
+}
+
+prepare_env
+parse_args "$@"
+run_workers
