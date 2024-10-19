@@ -1,0 +1,59 @@
+#! /bin/bash
+
+lockfile=$(dirname "${BASH_SOURCE[0]}")
+lockfile=$(realpath "$lockfile")/guessgame_lock
+
+if [[ -e $lockfile ]] && kill -0 $(<$lockfile); then
+	echo "Can only run one instance of Guessgame."
+	exit 2
+fi
+
+update_correct_number() {
+	(( correct_number = $RANDOM % (max - min + 1) + min ))
+}
+
+shutdown() {
+	kill $nc_pid
+	rm -r $tmp
+	rm $lockfile
+	echo "Guess game server stopped."
+}
+
+echo $$ > $lockfile
+
+min=${1:-1}
+max=${2:-10}
+port=${3:-7770}
+
+tmp=$(mktemp -d)
+conn_in=$tmp/conn_in
+conn_out=$tmp/conn_out
+mkfifo "$conn_in"
+mkfifo "$conn_out"
+
+nc -l -v $port > $conn_in < $conn_out & nc_pid=$?
+echo 'Guessgame server started.'
+
+trap shutdown EXIT ERR
+
+{
+	echo "Guess the number between $min and $max:"
+	update_correct_number
+	while : ; do
+		echo
+		read -r input || break;
+		echo
+		sleep 1
+
+		if (( input == correct_number )); then
+			echo "Correct! It was $input."
+			update_correct_number
+			sleep 1
+			echo "Guess the number between $min and $max:"
+		elif [[ $input == q ]]; then
+			exit 0
+		else
+			echo "Try again."
+		fi
+	done
+} < "$conn_in" > "$conn_out"

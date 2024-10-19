@@ -1,0 +1,63 @@
+#! /bin/bash
+
+set -m
+
+usage() {
+	cat - <<- 'END'
+	batchrsa <mode> <input> <output> <key> [<workers>]
+	Encrypts or decrypts files using RSA. Public key is used for encryption.
+	`operation` is either `encrypt` or `decrypt`, it tells the program whether to encrypt or decrypt the files. `input` is a directory, all the files from it are processed. `key` is the file with the key (public or private) that is used by the operation. `workers` specifies the amount of worker processes that are run, default is 5, less are used if there are less files.
+	END
+	[[ $1 ]] && exit $1
+}
+
+worker_encrypt() {
+	openssl pkeyutl -encrypt -pubin -inkey "$key" -in "$1" -out "$output"/"${1##*/}"
+}
+
+worker_decrypt() {
+	openssl pkeyutl -decrypt -inkey "$key" -in "$1" -out "$output"/"${1##*/}"
+}
+
+run() {
+	[[ -e $output ]] || mkdir $output
+
+
+	# Select worker function depending on mode
+	if [[ $mode == encrypt ]]; then
+		worker=worker_encrypt
+	elif [[ $mode == decrypt ]]; then
+		worker=worker_decrypt
+	else
+		echo "Unexpected error."
+		exit 1
+	fi
+
+	# Get files that are gonna be processed
+	files=()
+	for i in "$input/"*; do
+		if [[ -f "$i" ]]; then
+			files+=("$i")
+		fi
+	done
+
+	for i in "${files[@]}"; do
+		if (( $(jobs -p | wc -l) >= $workers_count )); then
+			wait -n
+		fi
+		$worker "$i" &
+	done
+}
+
+mode="$1"
+input="$2"
+output="$3"
+key="$4"
+workers_count="$5"
+
+if [[ "$mode" == @(encrypt|decrypt) && -d "$input" && -r "$key" && "$workers_count" == *([0-9]) && "$workers_count" -gt 1 ]]; then
+	workers_count=${workers_count:-5}
+	run
+else
+	usage 1
+fi

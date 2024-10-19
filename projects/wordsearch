@@ -220,7 +220,7 @@ parse_args() {
 			--help|-h) usage 0 ;;
 			--solve) solve=1 ;;
 			-s) width=$2; height=$3; shift 2 ;;
-			-p) horizontal_gap=$2; vertical_gap=$3; shift 2 ;;
+			-g) horizontal_gap=$2; vertical_gap=$3; shift 2 ;;
 			-w) while [[ $2 == +([a-zA-Z]) ]]; do shift; words+=("$1"); done ;;
 			-d) dict_file=$2; shift ;;
 			-v) verbose=1 ;;
