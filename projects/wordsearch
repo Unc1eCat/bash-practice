@@ -3,6 +3,9 @@
 uppercase_letters=ABCDEFGHIJKLMNOPQRSTUVWXYZ
 ansi_red='\033[0;31m'
 ansi_reset='\033[0m' # No Color
+wrong_input_exitcode=1
+randomization_failure_exitcode=2
+internal_error_exitcode=3
 
 usage() {
 	[[ $2 ]] && echo "Error: $2" 1>&2
@@ -27,7 +30,7 @@ usage() {
 
 prepare() {
 	if [[ $- == *i* ]]; then
-		usage 1 'You can not source the script.'
+		usage $wrong_input_exitcode 'You can not source the script.'
 	fi
 	shopt -s extglob
 }
@@ -61,6 +64,55 @@ opposite_orient() {
 choose_rand() {
 	local idx=$(( $RANDOM % $# + 1 ))
 	echo -n ${!idx} 
+}
+
+# Works with `solution_words`, `solution_starts`, `solution_orientations` global variables.
+# $1 - word.
+# $2 - first letter x-coordinate.
+# $3 - first letter y-coordinate.
+# $4 - orientation.
+append_solution() {
+	local idx=${#solution_words[@]}
+	if [[ ${solution_starts[idx]} || ${solution_orientations[idx]} ]]; then
+		echo 'Unexpected error.' >&2
+		exit 3
+	fi
+	solution_words[idx]="$1"
+	solution_starts[idx]="$2,$3"
+	solution_orientations[idx]="$4"
+}
+
+# Works with `solution_words`, `solution_starts`, `solution_orientations`, `dict_file`, `width` and `height` global variables.
+# This function does not determine the width and the height of the grid and does not validate the grid, this needs to be done in advance.
+# Fills `solution_starts` associative array with coordinates of first letters of found words, `solution_orientations` - with orientations of the words.
+# $1 - the grid of letters to check
+find_solutions() {
+	local x y i len grid cur 
+
+	grid="$1"
+
+	# Iterate over every word in the grid once
+	for (( x = 0; x < width; x++ )); do
+		for (( y = 0; y < height; y++ )); do
+			# Horizontal
+			for (( len = 1; len <= width - x; len++ )); do
+				cur=${grid:$(( y * (width + 1) + x )):$len} # The word we are currently interating over
+				if grep -x "$cur" "$dict_file" > /dev/null; then
+					append_solution "$cur" $x $y h
+				fi 
+			done
+			# Vertical
+			for (( len = 1; len <= height - y; len++ )); do
+				cur='' # The word we are currently interating over
+				for (( i = 0; i < len; i++ )); do	
+					cur=${cur}${grid:$(( (y + i) * (width + 1) + x )):1}
+				done
+				if grep -x "$cur" "$dict_file" > /dev/null; then
+					append_solution "$cur" $x $y v
+				fi 
+			done
+		done
+	done
 }
 
 # Works with `available_coords`, `starts`, `orientations`, `width` and `height` global variables
@@ -146,41 +198,6 @@ attempt_place_words_randomly() {
 	return 0
 }
 
-# Works with `solution_starts`, `solution_orientations`, `dict_file`, `width` and `height` global variables.
-# This function does not determine the width and the height of the grid and does not validate the grid, this needs to be done in advance.
-# Fills `solution_starts` associative array with coordinates of first letters of found words, `solution_orientations` - with orientations of the words.
-# $1 - the grid of letters to check
-find_solutions() {
-	local x y i len grid cur 
-
-	grid="$1"
-
-	# Iterate over every word in the grid once
-	for (( x = 0; x < width; x++ )); do
-		for (( y = 0; y < height; y++ )); do
-			# Horizontal
-			for (( len = 1; len <= width - x; len++ )); do
-				cur=${grid:$(( y * (width + 1) + x )):$len} # The word we are currently interating over
-				if grep -x "$cur" "$dict_file" > /dev/null; then
-					solution_starts[$cur]="$x,$y"
-					solution_orientations[$cur]=h
-				fi 
-			done
-			# Vertical
-			for (( len = 1; len <= height - y; len++ )); do
-				cur='' # The word we are currently interating over
-				for (( i = 0; i < len; i++ )); do	
-					cur=${cur}${grid:$(( (y + i) * (width + 1) + x )):1}
-				done
-				if grep -x "$cur" "$dict_file" > /dev/null; then
-					solution_starts[$cur]="$x,$y"
-					solution_orientations[$cur]=v
-				fi 
-			done
-		done
-	done
-}
-
 # Turns `starts` and `orientations` into an actual grid, prints it.
 make_grid() {
 	local i j k x y x_add y_add first_coord
@@ -251,31 +268,48 @@ parse_args() {
 			-g) horizontal_gap=$2; vertical_gap=$3; shift 2 ;;
 			-w) while [[ $2 == +([a-zA-Z]) ]]; do shift; words+=("$1"); done ;;
 			-v) verbose=1 ;;
-			*) usage 1 "Unrecognized option: $1"
+			*) usage $wrong_input_exitcode "Unrecognized option: $1"
 		esac
 		shift
 	done
 	
 	# Validate argument values
 	if (( solve )); then
-		if [[ $width || $height || ${#words[@]} -gt 0 ]]; then
-			usage 1 'Can not supply width, height or words if `--solve` is enabled.'
+		if [[ $width || $height ]]; then
+			usage $wrong_input_exitcode 'Can not supply width or height if `--solve` is enabled.'
 		fi
 	else
 		if [[ $width != [1-9]*([0-9]) || $height != [1-9]*([0-9]) ]]; then
-			usage 1 'Width and height must be positive integers.'
+			usage $wrong_input_exitcode 'Width and height must be positive integers.'
 		fi
-		if [[ $horizontal_gap != +([0-9]) || $vertical_gap != +([0-9]) ]]; then
-			usage 1 'Gap must be two non-negative integers.'
+	fi
+	if [[ $horizontal_gap != +([0-9]) || $vertical_gap != +([0-9]) ]]; then
+		usage $wrong_input_exitcode 'Gap must be two non-negative integers.'
+	fi
+
+	# Check words list and normalize it
+	if (( solve )); then
+		if (( ${#words[@]} > 0 )); then
+			usage $wrong_input_exitcode 'Cannot supply words if `--solve` is enabled.'
 		fi
+	else 
 		if (( ${#words[@]} <= 0 )); then
-			usage 1 'You need to provide some words.'
+			usage $wrong_input_exitcode 'You need to provide some words.'
 		fi
-		for i in "${words[@]}"; do
-			if [[ $i != +([a-zA-Z]) || ${#i} -lt 2 ]]; then
-				usage 1 'All words must only contain english letters and be at least 2 letters long.'
+		local total_length
+		for i in "${!words[@]}"; do
+			if [[ ${words[i]} != +([a-zA-Z]) || ${#words[i]} -lt 2 ]]; then
+				usage $wrong_input_exitcode "Incorrect word: \"${words[i]}\". All words must only contain english letters and be at least 2 letters long."
 			fi
-		done
+			if (( ${#words[i]} > width && ${#words[i]} > height )); then
+				usage $wrong_input_exitcode "Incorrect word: \"${words[i]}\". All words must be shorter than the width or the height of the grid."
+			fi
+			words[i]=$(echo -n "${words[i]}" | tr [:lower:] [:upper:]])
+			(( total_length += ${#words[i]} ))
+		done	
+		if (( total_length > width * height )); then
+			usage $wrong_input_exitcode 'The total number of letter within the words exceeds the grid size. It must not.'
+		fi
 	fi
 
 	# Check dictionary file and read words from it
@@ -283,7 +317,7 @@ parse_args() {
 		local line pp
 		if [[ -e $dict_file ]]; then
 			if [[ ! -r $dict_file ]]; then 
-				usage 1 "The \"$dict_file\" dictionary file could not be opened for reading."
+				usage $wrong_input_exitcode "The \"$dict_file\" dictionary file could not be opened for reading."
 			fi
 			echo_verbose "Started loading the dictionary from the \"$dict_file\" file."
 			tmp_dict=$(mktemp)
@@ -291,21 +325,16 @@ parse_args() {
 			while read -r line; do
 				if [[ $line != +([a-zA-Z]) || ${#i} -lt 2 ]]; then
 					kill $pp 
-					usage 1 "The dictionary file contains an invalid word \"$line\". All words in the dictionary must only be made up of letters."
+					usage $wrong_input_exitcode "The dictionary file contains an invalid word \"$line\". All words in the dictionary must only be made up of letters."
 				fi
 			done < "$tmp_dict"
 			wait $pp
 			dict_file=$tmp_dict
 			echo_verbose "Loaded $(cat $dict_file | wc -l) words from the dictionary file." 
 		else 
-			usage 1 "The \"$dict_file\" dictionary file does not exist."
+			usage $wrong_input_exitcode "The \"$dict_file\" dictionary file does not exist."
 		fi
 	fi
-
-	# Normalize every word in `words` to be uppercase
-	for i in "${!words[@]}"; do
-		words[i]=$(echo -n "${words[i]}" | tr [:lower:] [:upper:]])
-	done	
 }
 
 run_generate() {
@@ -321,10 +350,9 @@ run_generate() {
 			available_coords+=( "$i,$j" )
 		done
 	done
-	# Randomly select spare points in the grid and try placing a word in them. This algorithm is prone to executing the longer the bigger the word size to 
-	# grid size ratio is, up to infinity. So if too many failed attempts to place a word were made we reset the grid and fallback to another algorithm - 
-	# place all words in a very obvious pattern and then try repeatedly moving them one cell down/one cell right. This won't be too random but placing 
-	# too many words in a very small grid shouldn't be expected to yield good results anyway.
+
+	# Make several tries to generate a grid and fail if we didn't manage to do it
+	# TODO: Add a fallback algorithm for small grids that yields games with less chaotic placement of words but is more reliable.
 	for (( tries = 0; 1; tries++ )); do
 		unset starts orientations available_coords
 		declare -Ag starts orientations 
@@ -335,9 +363,7 @@ run_generate() {
 			done
 		done
 		if (( tries >= 10 )); then
-			if ! place_words_small_grid_fallback $"{words[@]}"; then
-				usage 2 'Randomized placement of words failed.'
-			fi
+			usage $randomization_failure_exitcode 'Randomized placement of words failed.'
 			break
 		fi
 		if attempt_place_words_randomly "${words[@]}"; then
@@ -359,7 +385,7 @@ run_generate() {
 run_solve() {
 	local grid i
 
-	declare -gA solution_starts solution_orientations # Coordinates of first letters of found words and their orientations
+	declare -ga solution_words solution_starts solution_orientations # Found words, coordinates of their first letters and their orientations
 	width=
 	height=
 	
@@ -370,10 +396,10 @@ run_solve() {
 
 	# Validate the grid
 	if [[ ${#grid} == 0 ]]; then
-		usage 1 'The grid must not be empty.'
+		usage $wrong_input_exitcode 'The grid must not be empty.'
 	fi
 	if [[ $grid != *([A-Z$'\n']) ]]; then
-		usage 1 'The grid contains disallowed characters. It must only contain English letters, spaces and line breaks.'
+		usage $wrong_input_exitcode 'The grid contains disallowed characters. It must only contain English letters, spaces and line breaks.'
 	fi
 
 	# Find out the width and the height of the grid and validate length of the lines.
@@ -383,7 +409,7 @@ run_solve() {
 	for i in $grid; do
 		(( height++ ))
 		if (( ${#i} != width )); then
-			usage 1 'All lines must contain an equal number of letters.'
+			usage $wrong_input_exitcode 'All lines must contain an equal number of letters.'
 		fi
 	done
 
@@ -392,19 +418,19 @@ run_solve() {
 	# Output solutions shortly
 	(( verbose )) && {
 		echo 'Solutions:' > /dev/tty
-		for i in ${!solution_starts[@]}; do
-			printf '%s: %s (%s, %s)\n' "$i" ${solution_orientations[$i]} ${solution_starts[$i]%%,*} ${solution_starts[$i]##*,} > /dev/tty
+		for i in ${!solution_words[@]}; do
+			printf '%s: %s (%s, %s)\n' "${solution_words[i]}" ${solution_orientations[i]} ${solution_starts[i]%%,*} ${solution_starts[i]##*,} > /dev/tty
 		done
 	}
 
-	# Output the solutions on the grid
+	# Output the solutions as a grid
 	declare -a highlighted_coords # An array that contains coordinates of letters of found words.
 	local i j x y
-	for i in ${!solution_starts[@]}; do
-		x=${solution_starts[$i]%%,*}
-		y=${solution_starts[$i]##*,}
-		for (( j = 0; j < ${#i}; j++ )); do
-			if [[ ${solution_orientations[$i]} == h ]]; then
+	for i in ${!solution_words[@]}; do
+		x=${solution_starts[i]%%,*}
+		y=${solution_starts[i]##*,}
+		for (( j = 0; j < ${#solution_words[i]}; j++ )); do
+			if [[ ${solution_orientations[i]} == h ]]; then
 				highlighted_coords+=( "$((x + $j)),$y" )
 			else
 				highlighted_coords+=( "$x,$((y + $j))" )
