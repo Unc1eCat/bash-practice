@@ -1,8 +1,15 @@
 #! /bin/bash
 
+# cSpell:words isodatetime datetime
+
 usage() {
-	echo "isodatetime <isodatetime>"
-	echo "Prints human-readable breakdown of the datetime in the ISO format."
+	echo "isodatetime [ -d ] [ -t ] <isodatetime>"
+	cat <<- "END"
+	Prints human-readable breakdown of the datetime in the ISO format. At least one of `-d` and `-t` flags must be specified, `-d` means that the `isodatetime` 
+	contains date part, `-t` means that the input contains time part.
+	END
+	[[ "$2" ]] && echo "Error: $2."
+	[[ "$1" ]] && exit "$1"
 }
 
 count() {
@@ -11,30 +18,156 @@ count() {
 	local ret=0
 
 	for ((i = 0; i < ${#input}; i++)); do
-		[[ "${input:i:1}" == "$char" ]] && (( ret++ ))
+		[[ "${input:$i:1}" == "$char" ]] && (( ret++ ))
 	done
-	echo ret
+	echo $ret
 }
 
 month_names=(January February March April May June July August September October November December)
+weekday_names=(Monday Tuesday Wednesday Thursday Friday Saturday Sunday)
 hr='------------'
 
+validate_month_and_day() {
+	local max_day
+	if (( month = 2 )); then
+		# Special case for february
+		# TODO: Check if leap years in BC are calculated correctly
+		if (( year % 400 == 0 || (year % 4 == 0 && year % 100 != 0) )); then
+			# Leap year
+			max_day=29
+		else
+			# Not leap year
+			max_day=28
+		fi
+	elif [[ $month = @(1|3|5|7|8|10|12) ]]; then
+		max_day=31
+	elif [[ $month = @(4|6|9|11) ]]; then
+		max_day=30
+	else 
+		usage 1 'Month must be between 1 and 12'
+	fi
+
+	if (( day < 1 || max_day < day )); then
+		usage 1 "${month_names[month-1]} of $year has days from 1 to $max_day and no day $day"
+	fi
+}
+
 parse_tz() {
-	false
+	case tz_part in
+		Z)
+			(( tz_hours = tz_minutes = 0 ))
+		;;
+		
 }
 
 parse_date() {
-	local dashes=$(count - "$date")
+	local dashes=$(count - "$date_part")
 
-	year="${date%%-*}"
+	[[ $date_part != +([-+0-9W]) ]] && usage 1 'Only dashes, plus, numbers and letter `W` are allowed in date'
+	case "$date_part" in
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) # YYYY-MM-DD
+			year=${date_part:0:4}
+			month=${date_part:5:2}
+			day=${date_part:8:2}
+		;;
+		[0-9][0-9][0-9][0-9]-[0-9][0-9]) # YYYY-MM
+			year=${date_part:0:4}
+			month=${date_part:5:2}
+			day=1
+		;;
+		[0-9][0-9][0-9][0-9]) # YYYY
+			year=$date_part
+			month=1
+			day=1
+		;;
+		[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) # YYYYMMDD
+			year=${date_part:0:4}
+			month=${date_part:4:2}
+			day=${date_part:6:2}
+		;;
 
-	if (( dashes >= 1 )); then
-		month="${date#*-}"
-		month="${month%%-*}"
-	fi
+		# Signed year
+		[-+][0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]) # [+-]YYYY-MM-DD
+			year=${date_part:0:4}
+			month=${date_part:6:2}
+			day=${date_part:9:2}
+		;;
+		[-+][0-9][0-9][0-9][0-9]-[0-9][0-9]) # [+-]YYYY-MM
+			year=${date_part:0:4}
+			month=${date_part:6:2}
+			day=1
+		;;
+		[-+][0-9][0-9][0-9][0-9]) # [+-]YYYY
+			year=$date_part
+			month=1
+			day=1
+		;;
+		[-+][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) # [+-]YYYYMMDD
+			year=${date_part:0:4}
+			month=${date_part:5:2}
+			day=${date_part:7:2}
+		;;
 
-	if (( dashes == 2 )); then
-		day="${date##*-}"
+		# Week format
+		[0-9][0-9][0-9][0-9]-W[0-9][0-9]-[0-9]) # YYYY-Www-D
+			year=${date_part:0:4}
+			week=${date_part:6:2}
+			weekday=${date_part:9:1}
+		;;
+		[0-9][0-9][0-9][0-9]-W[0-9][0-9]) # YYYY-Www
+			year=${date_part:0:4}
+			week=${date_part:6:2}
+			weekday=1
+		;;
+		[0-9][0-9][0-9][0-9]W[0-9][0-9][0-9]) # YYYYWwwD
+			year=${date_part:0:4}
+			week=${date_part:5:2}
+			weekday=${date_part:7:1}
+		;;
+		[0-9][0-9][0-9][0-9]W[0-9][0-9]) # YYYYWww
+			year=${date_part:0:4}
+			week=${date_part:5:2}
+			weekday=1
+		;;
+
+		# Week format, signed year
+		[-+][0-9][0-9][0-9][0-9]-W[0-9][0-9]-[0-9]) # [+-]YYYY-Www-D
+			year=${date_part:0:4}
+			week=${date_part:7:2}
+			weekday=${date_part:10:1}
+		;;
+		[-+][0-9][0-9][0-9][0-9]-W[0-9][0-9]) # [+-]YYYY-Www
+			year=${date_part:0:4}
+			week=${date_part:7:2}
+			weekday=1
+		;;
+		[-+][0-9][0-9][0-9][0-9]W[0-9][0-9][0-9]) # [+-]YYYYWwwD
+			year=${date_part:0:4}
+			week=${date_part:6:2}
+			weekday=${date_part:8:1}
+		;;
+		[-+][0-9][0-9][0-9][0-9]W[0-9][0-9]) # [+-]YYYYWww
+			year=${date_part:0:4}
+			week=${date_part:6:2}
+			weekday=1
+		;;
+
+		# Ordinal date
+		[0-9][0-9][0-9][0-9]-[0-9][0-9][0-9])
+			year=${date_part:0:4}
+			fill_day_from_ordinal_date "${date_part:5:3}"
+		;;
+		*) usage 1 "Date of invalid format: \`$date_part\`"	
+	esac
+	year=${year#+}
+	if [[ $date_part = *W* ]]; then
+		unset day month
+		[[ $weekday != [1-7] ]] && usage 1 'Weekday must be between 1 and 7'
+		(( week < 1 || 53 < week )) && usage 1 'Week number must be between 1 and 53'
+	else
+		unset week weekday
+		(( month < 1 || 12 < month )) && usage 1 'Month must be between 1 and 12'
+		
 	fi
 }
 
@@ -42,8 +175,50 @@ parse_time() {
 	false
 }
 
-print_tz() {
-	if [[ tz ]]; then
+print_result() {
+	if [[ $date_part ]]; then
+		if [[ $year = -* ]]; then
+			local year_string="$(( -year + 1 )) BC"
+		else
+			local year_string="$year AD"
+		fi
+		if [[ $week ]]; then
+			cat <<- END
+				$hr DATE $hr
+				Year: $year_string
+				Week: $week
+				Weekday: ${weekday_names[weekday - 1]}
+			END
+		else
+			cat <<- END
+				$hr DATE $hr
+				Year: $year_string
+				Month: ${month_names[month - 1]}
+				Day: $day
+			END
+		fi
+	else
+		cat <<- END
+			$hr DATE $hr
+			No date was specified.
+		END
+	fi
+
+	if [[ $time_part ]]; then 
+		cat <<- END
+			$hr TIME $hr
+			Hour: $hour
+			Minute: $minute
+			Second: $second
+		END
+	else
+		cat <<- END
+			$hr TIME $hr
+			No time was specified.
+		END
+	fi
+
+	if [[ $tz_part ]]; then
 		cat <<- END
 			$hr TIMEZONE $hr
 			(timezone offset from UTC)
@@ -58,53 +233,78 @@ print_tz() {
 	fi
 }
 
-print_result() {
-	cat <<- END
-		$hr DATE $hr
-		Year: $year
-		Month: ${month_names[month]}
-		Day: $day
-		$hr TIME $hr
-		Hour: $hour
-		Minute: $minute
-		Second: $second
-	END
-	print_tz
-}
-
 run() {
+	# Prepare 
+	shopt -s extglob
+
 	# Set defaults
-	for i in year month day hour minute second; do
-		declare $i=0
+	((
+		year=0,
+		month = day = 1,
+		hour = minute = second = millisecond = 0
+	))
+	unset tz_hours tz_minutes week weekday # Weeks start on Monday
+	# If `tz_hour` and `tz_minutes` are unset then there is no timezone in the input datetime
+	# If `week` and `weekday` are set then the input datetime has the calendar date specified in week of the year and weekday format, the `month` and 
+	# `day` variables must be unset in this case
+
+	# Process arguments
+	unset input
+	has_date=0
+	has_time=0
+	while (( $# > 0 )); do
+		case "$1" in 
+			--help|-h) usage 0 ;; 
+			-d) has_date=1 ;;
+			-t) has_time=1 ;;
+			*) 
+				if [[ $input ]]; then
+					usage 1 "Unrecognized option: \`$1\`"
+				else
+					input="$1"
+				fi 
+			;; 
+		esac
+		shift 
 	done
-
-	input="$1"
-
-	# If tz variable is unset then the input datetime is naive
-	if [[ $input = *@(+?(????|??:??)|-?(????|??:??)|Z) ]]; then
-		local no_tz="${input%[+\-Z]*}"
-		tz="${input#$no_tz}"
-		tz_hours=0
-		tz_minutes=0
-		input="$no_tz"
+	if [[ ! $input ]]; then 
+		usage 1 'One positional argument `isodatetime` must be provided'
+	fi
+	if (( (!has_date) && (!has_time) )); then
+		usage 1 'At least one of `-d` and `t` options must be specified'
 	fi
 
-	if [[ $input = *T* ]]; then
-		date="${input%%T*}"
-		time="${input#*T}"
+
+	# Separate the `input` into `date_part`, `time_part` and `tz_part` variables
+	if (( has_date && has_time )); then
+		[[ $input != *T* || $input == *T*T* ]] && usage 1 'The input must contain exactly one character `T`'
+		date_part=${input%%T*}
+		local date_removed="${input##*T}"
+		time_part=${date_removed%%[-+Z]*}
+		[[ -z $date_part ]] && usage 1 'The date part of the input cannot be empty'
+		[[ -z $time_part ]] && usage 1 'The time part of the input cannot be empty'
+		tz_part=${date_removed##*([^-+Z])} # Extracts timezone leaving `+`, `-` and `Z` in place
+	elif (( has_date )); then
+		[[ $input = *T* ]] && usage 1 'Only `-d` option is specified but separator `T` appears in the input'
+		[[ $input = ?*@(Z|Z+|Z-|+)*([0-9:]) ]] && usage 1 'Timezone is not allowed without time part'
+		[[ -z $input ]] && usage 1 'The input date cannot be empty'
+		date_part=$input
+	elif (( has_time )); then
+		[[ $input = *T* ]] && usage 1 'Only `-t` option is specified but separator `T` appears in the input'
+		[[ -z $input ]] && usage 1 'The input time cannot be empty'
+		time_part=${input%%[-+Z]*}
+		tz_part=${input##*([^-+Z])} # Extracts timezone leaving `+`, `-` and `Z` in place
 	else
-		date="$input"
+		usage 1 'At least one of `-d` or `-t` must be specified'
 	fi
 
-	parse_date
-	[[ time ]] && parse_time
-	[[ tz ]] && parse_tz
+	declare -p date_part time_part tz_part
+	
+	[[ date_part ]] && parse_date
+	[[ time_part ]] && parse_time
+	[[ tz_part ]] && parse_tz
 
 	print_result
 }
 
-if [[ $# -eq 1 ]]; then
-	run "$@"
-else
-	usage
-fi
+run "$@"
